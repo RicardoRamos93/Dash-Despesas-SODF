@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Secretaria de Obras e NOVACAP: execução orçamentária</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+<style>
+  :root {
+    color-scheme: light;
+    --color-fg: #1f1e1d; --color-fg-muted: #6b6a66; --color-bg: #f7f6f2; --color-panel: #ffffff;
+    --color-border-line: #e4e2da; --color-bad: #c0392b;
+    --cds-chart-muted: #cfccc2; --cds-chart-grid: #ecebe5; --cds-chart-axis: #b6b3a9;
+    --cds-surface-popover: #ffffff; --cds-border: #dcd9cf; --cds-shadow-popover: 0 6px 20px rgba(0,0,0,.12);
+    --cds-text-secondary: #6b6a66; --ox-c0: #2f66d0;
+    --cds-radius: 10px; --cds-pad-xs: 4px; --cds-pad-sm: 8px; --cds-pad-lg: 20px;
+    --cds-gap-xs: 6px; --cds-gap-sm: 10px; --cds-gap-md: 16px; --cds-gap-lg: 28px;
+    --cds-font-size-caption: .8125rem; --cds-font-size-body: 1rem; --cds-font-size-heading: 1.0625rem; --cds-font-size-title: 2rem;
+    --cds-font-weight-medium: 600; --cds-dur-slow: .4s;
+    --font-anthropic-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-anthropic-serif: Georgia, "Times New Roman", serif;
+    box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --color-fg: #ecebe6; --color-fg-muted: #a5a39c; --color-bg: #1c1b19; --color-panel: #262523;
+      --color-border-line: #3a3935; --color-bad: #ef6b5b;
+      --cds-chart-muted: #55534d; --cds-chart-grid: #34332f; --cds-chart-axis: #66645d;
+      --cds-surface-popover: #2e2d2a; --cds-border: #45433e; --cds-shadow-popover: 0 6px 20px rgba(0,0,0,.5);
+      --cds-text-secondary: #a5a39c; --ox-c0: #6f9cf0;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --color-fg: #ecebe6; --color-fg-muted: #a5a39c; --color-bg: #1c1b19; --color-panel: #262523;
+    --color-border-line: #3a3935; --color-bad: #ef6b5b;
+    --cds-chart-muted: #55534d; --cds-chart-grid: #34332f; --cds-chart-axis: #66645d;
+    --cds-surface-popover: #2e2d2a; --cds-border: #45433e; --cds-shadow-popover: 0 6px 20px rgba(0,0,0,.5);
+    --cds-text-secondary: #a5a39c; --ox-c0: #6f9cf0;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body { margin: 0; background: var(--color-bg); color: var(--color-fg); font-family: var(--font-anthropic-sans); line-height: 1.45; }
+  .ox-page { max-width: 1200px; margin-inline: auto; padding: clamp(16px, 4vw, 40px); }
+  .dash-skeleton { color: transparent !important; background: var(--cds-chart-grid); border-radius: 6px; }
+  .ox-rodape { margin-top: var(--cds-gap-lg); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script>
+  // Substituto mínimo da API do dashboard: carrega os JSONs de data/ e redesenha.
+  window.dash = (() => {
+    const fontes = ['info', 'kpis', 'mensal', 'por_acao', 'por_grupo', 'programas', 'credores'];
+    const store = {};
+    let params = { unidade: 'SODF + NOVACAP' };
+    const desenhos = {}, ouvintes = [];
+    const rodar = () => {
+      ouvintes.forEach((f) => { try { f(); } catch (e) { console.error(e); } });
+      Object.entries(desenhos).forEach(([nome, fn]) => {
+        document.querySelectorAll('[data-draw="' + nome + '"]').forEach((el) => { try { fn(el); } catch (e) { console.error(nome, e); } });
+      });
+    };
+    const carregar = () => Promise.all(fontes.map((id) =>
+      fetch('data/' + id + '.json', { cache: 'no-cache' })
+        .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then((data) => { store[id] = { status: 'ok', data }; })
+        .catch(() => { store[id] = { status: 'error', data: [] }; })
+    )).then(rodar);
+    let t;
+    window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(rodar, 150); });
+    document.addEventListener('DOMContentLoaded', () => { rodar(); carregar(); });
+    return {
+      data: (id) => store[id] || { status: 'loading', data: [] },
+      params: () => params,
+      setParams: (o) => { params = { ...params, ...o }; rodar(); },
+      resetParams: () => { params = { unidade: 'SODF + NOVACAP' }; rodar(); },
+      draw: (nome, fn) => { desenhos[nome] = fn; },
+      onData: (fn) => { ouvintes.push(fn); },
+      setLink: () => {},
+      colors: ['var(--ox-c0)'],
+    };
+  })();
+</script>
+<style>
+  .ox { font-family: var(--font-anthropic-sans); display: flex; flex-direction: column; gap: var(--cds-gap-lg); }
+  .ox-head h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0 0 var(--cds-gap-xs); }
+  .ox-head p { margin: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-body); max-width: 60rem; }
+  .ox-head p b { color: var(--color-fg); font-weight: 600; }
+  .ox-filtro { display: flex; flex-wrap: wrap; gap: var(--cds-gap-xs); }
+  .ox-filtro button { font: inherit; font-size: var(--cds-font-size-caption); padding: var(--cds-pad-xs) var(--cds-pad-sm); border-radius: 999px; border: 1px solid var(--color-border-line); background: var(--color-panel); color: var(--color-fg); cursor: pointer; }
+  .ox-filtro button[aria-pressed="true"] { background: var(--color-fg); color: var(--color-bg); border-color: var(--color-fg); }
+  .ox-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: var(--cds-gap-md); }
+  .ox-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); min-width: 0; }
+  .ox-card h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
+  .ox-card .ox-note { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin: var(--cds-gap-xs) 0 var(--cds-gap-md); }
+  .ox-tile .ox-label { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin: 0; }
+  .ox-tile .ox-value { display: block; font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: var(--cds-gap-xs) 0; font-variant-numeric: tabular-nums; }
+  .ox-tile .ox-note { margin: 0; }
+  .ox-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: var(--cds-gap-md); }
+  .ox-chart { position: relative; min-height: 12rem; }
+  .ox-chart.ox-tall { min-height: 21rem; }
+  #card-programas, #card-credores { grid-column: 1 / -1; }
+  .ox-chart.ox-short { min-height: 9rem; }
+  .ox-tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); border-radius: var(--cds-radius); box-shadow: var(--cds-shadow-popover); padding: var(--cds-pad-xs) var(--cds-pad-sm); font-size: var(--cds-font-size-caption); white-space: nowrap; z-index: 2; }
+  .ox-tip .ox-tip-k { color: var(--cds-text-secondary); }
+  .ox-fail { display: flex; align-items: center; justify-content: center; gap: var(--cds-gap-xs); min-height: inherit; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+  .ox-fail::before { content: ""; width: .375rem; height: .375rem; border-radius: 50%; background: var(--color-bad); }
+  .ox-legend { display: flex; gap: var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin: 0 0 var(--cds-gap-sm); }
+  .ox-legend span::before { content: ""; display: inline-block; width: .7rem; height: .7rem; border-radius: 2px; margin-right: .35rem; vertical-align: -1px; background: var(--ox-sw); }
+  .ox-tablebox { max-height: 26rem; overflow: auto; }
+  .ox-table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
+  .ox-table th { position: sticky; top: 0; background: var(--color-panel); text-align: right; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); }
+  .ox-table td { text-align: right; padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--cds-chart-grid); white-space: nowrap; }
+  .ox-table th:first-child, .ox-table td:first-child { text-align: left; white-space: normal; min-width: 12rem; }
+  .ox-bar { display: inline-block; height: .5rem; border-radius: 2px; margin-right: .4rem; vertical-align: middle; }
+  .ox-about ul { margin: 0; padding-left: 1.1rem; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); display: grid; gap: var(--cds-gap-xs); }
+  .ox-about b { color: var(--color-fg); }
+  [data-dash-source-state=empty] { color: transparent; }
+  [data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
+  @media (max-width: 40rem) { .ox-hide-narrow { display: none; } .ox-tile .ox-value { font-size: 1.5rem; white-space: nowrap; } }
+</style>
+</head>
+<body>
+<div class="ox ox-page">
+  <header class="ox-head" id="topo">
+    <h1>Secretaria de Obras e NOVACAP: execução orçamentária em <span data-info="exercicio">—</span></h1>
+    <p><b data-draw="t-area">—</b>, foram empenhados <b data-draw="t-emp" data-source="kpis" data-field="empenhado">—</b> até <span data-info="data">—</span>, e já foram liquidados <b data-draw="t-liq" data-source="kpis" data-field="taxa_liquidacao">—</b> desse valor; do que foi liquidado, <b data-draw="t-pag" data-source="kpis" data-field="taxa_pagamento">—</b> já está pago.</p>
+  </header>
+
+  <div class="ox-filtro" role="group" aria-label="Unidade orçamentária" id="filtro-area">
+    <button type="button" data-area="SODF + NOVACAP" aria-pressed="true">SODF + NOVACAP</button>
+    <button type="button" data-area="Secretaria de Obras" aria-pressed="false">Secretaria de Obras (UO 22101)</button>
+    <button type="button" data-area="NOVACAP" aria-pressed="false">NOVACAP (UO 22201)</button>
+  </div>
+
+  <section class="ox-tiles" id="indicadores" aria-label="Indicadores">
+    <div class="ox-card ox-tile">
+      <p class="ox-label">Empenhado</p>
+      <b class="ox-value dash-skeleton" data-draw="k-emp" data-source="kpis" data-field="empenhado">—</b>
+      <p class="ox-note">Despesa comprometida em nota de empenho, <span data-info="exercicio">—</span> até <span data-info="data_curta">—</span></p>
+    </div>
+    <div class="ox-card ox-tile">
+      <p class="ox-label">Liquidado</p>
+      <b class="ox-value dash-skeleton" data-draw="k-liq" data-source="kpis" data-field="liquidado">—</b>
+      <p class="ox-note">Serviço ou bem entregue e atestado</p>
+    </div>
+    <div class="ox-card ox-tile">
+      <p class="ox-label">Pago</p>
+      <b class="ox-value dash-skeleton" data-draw="k-pag" data-source="kpis" data-field="pago">—</b>
+      <p class="ox-note">Ordens bancárias emitidas no exercício</p>
+    </div>
+    <div class="ox-card ox-tile">
+      <p class="ox-label">Liquidado ÷ empenhado</p>
+      <b class="ox-value dash-skeleton" data-draw="k-tx" data-source="kpis" data-field="taxa_liquidacao">—</b>
+      <p class="ox-note">Quanto do comprometido já virou entrega</p>
+    </div>
+    <div class="ox-card ox-tile">
+      <p class="ox-label">Investimentos liquidados</p>
+      <b class="ox-value dash-skeleton" data-draw="k-inv" data-source="kpis" data-field="investimento_liquidado">—</b>
+      <p class="ox-note">Obras e equipamentos (grupo 4), de <span data-draw="k-inv-emp" data-source="kpis" data-field="investimento_empenhado">—</span> empenhados</p>
+    </div>
+  </section>
+
+  <section class="ox-grid" id="ritmo">
+    <div class="ox-card" id="card-funil">
+      <h2>Estágios da despesa</h2>
+      <p class="ox-note">Empenhado, liquidado e pago na unidade selecionada</p>
+      <div class="ox-chart ox-short" data-draw="funil" data-source="kpis"></div>
+    </div>
+    <div class="ox-card" id="card-mensal">
+      <h2>Empenhado por mês</h2>
+      <p class="ox-note">Pela data de emissão do empenho. Janeiro concentra empenhos anuais de folha e contratos; o último mês vai só até <span data-info="data_curta">—</span>.</p>
+      <div class="ox-chart" data-draw="mensal" data-source="mensal"></div>
+    </div>
+  </section>
+
+  <section class="ox-card" id="card-acoes">
+    <h2>Principais ações orçamentárias</h2>
+    <p class="ox-note">As 12 ações com mais empenho na unidade selecionada; a barra escura mostra quanto já foi liquidado</p>
+    <p class="ox-legend"><span style="--ox-sw: var(--cds-chart-muted)">Empenhado</span><span class="ox-sw-liq">Liquidado</span></p>
+    <div class="ox-chart ox-tall" data-draw="acoes" data-source="por_acao"></div>
+  </section>
+
+  <section class="ox-card" id="card-grupo">
+    <h2>Por grupo de natureza da despesa</h2>
+    <p class="ox-note">Onde o dinheiro vai: pessoal, custeio, investimento ou dívida</p>
+    <p class="ox-legend"><span style="--ox-sw: var(--cds-chart-muted)">Empenhado</span><span class="ox-sw-liq">Liquidado</span></p>
+    <div class="ox-chart ox-short" data-draw="grupo" data-source="por_grupo"></div>
+  </section>
+
+  <section class="ox-grid" id="quem">
+    <div class="ox-card" id="card-programas">
+      <h2>Programas de trabalho com mais empenho</h2>
+      <p class="ox-note">Os 20 maiores da unidade selecionada; o nome traz o subtítulo, que costuma indicar a obra ou a região</p>
+      <div class="ox-tablebox">
+        <table class="ox-table" data-source="programas" data-row-key="unidade,codigo_pt">
+          <thead><tr>
+            <th data-field="programa_trabalho">Programa de trabalho</th>
+            <th data-field="codigo_pt" class="ox-hide-narrow">Código</th>
+            <th data-field="empenhado">Empenhado</th>
+            <th data-field="liquidado" class="ox-hide-narrow">Liquidado</th>
+            <th data-field="taxa_liquidacao">Liq. ÷ emp.</th>
+          </tr></thead>
+          <tbody data-draw="programas-body"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="ox-card" id="card-credores">
+      <h2>Maiores credores (empresas e entes)</h2>
+      <p class="ox-note">Os 10 que mais receberam na unidade selecionada. Só CNPJ: pagamentos a pessoas físicas não aparecem aqui.</p>
+      <div class="ox-tablebox">
+        <table class="ox-table" data-source="credores" data-row-key="area,credor">
+          <thead><tr>
+            <th data-field="credor">Credor</th>
+            <th data-field="empenhado" class="ox-hide-narrow">Empenhado</th>
+            <th data-field="pago">Pago</th>
+          </tr></thead>
+          <tbody data-draw="credores-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="ox-card ox-about" id="sobre">
+    <h2>Sobre os dados</h2>
+    <p class="ox-note">Leia antes de comparar com outros painéis</p>
+    <ul>
+      <li><b>Fonte:</b> base de despesas do Portal de Dados Abertos do GDF, extraída do SIGGO em <span data-info="data">—</span> (tabelas “Despesa_Principal” e, para a série mensal, “Despesa_Empenho”).</li>
+      <li><b>Recorte por unidade orçamentária:</b> entram as despesas das UOs 22101 (Secretaria de Estado de Obras e Infraestrutura) e 22201 (NOVACAP), quem quer que as execute. Isso inclui <span data-info="sodf_executado_pela_novacap">—</span> do orçamento da Secretaria executados pela NOVACAP.</li>
+      <li><b>Fora do recorte:</b> <span data-info="novacap_outras_uos">—</span> que a NOVACAP executa com orçamento de outras secretarias (Saúde, Educação, Esporte, administrações regionais e outras), porque pertencem às UOs dessas pastas.</li>
+      <li><b>Sem dotação:</b> a base não traz dotação inicial nem autorizada, então o painel não mostra execução sobre o orçamento previsto. “Liquidado ÷ empenhado” mede o avanço do que já foi comprometido.</li>
+      <li><b>Pago</b> inclui somente pagamentos de despesas do próprio exercício; restos a pagar de anos anteriores não entram. Em pessoal, o liquidado pode superar levemente o empenhado por ajustes da folha.</li>
+    </ul>
+  </section>
+  <p class="ox-rodape">Fonte: Portal de Dados Abertos do GDF (dados.df.gov.br), base de despesas extraída do SIGGO. Painel independente, sem vínculo oficial com o GDF.</p>
+</div>
+
+<script>
+  const TODAS = 'SODF + NOVACAP';
+  const compact = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
+  const pctFmt = new Intl.NumberFormat('pt-BR', { style: 'percent', maximumFractionDigits: 1 });
+  const brl = (v) => 'R$ ' + compact.format(Number(v));
+  const pct = (v) => (v == null || isNaN(Number(v))) ? '—' : pctFmt.format(Number(v));
+  const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const mesLabel = (m) => MESES[Number(m.slice(5, 7)) - 1];
+  const areaAtual = () => dash.params().unidade || TODAS;
+  const enc = encodeURIComponent;
+  const info = () => (dash.data('info').status === 'ok' ? dash.data('info').data : null);
+  const dataBR = (iso) => iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4);
+  const dataCurta = () => (info() ? dataBR(info().data_extracao).slice(0, 5) : '—');
+  const mesParcial = () => (info() ? info().data_extracao.slice(0, 7) : '');
+  dash.onData(() => {
+    const i = info();
+    const v = i ? {
+      exercicio: String(i.exercicio), data: dataBR(i.data_extracao), data_curta: dataCurta(),
+      sodf_executado_pela_novacap: brl(i.sodf_executado_pela_novacap), novacap_outras_uos: brl(i.novacap_outras_uos),
+    } : {};
+    document.querySelectorAll('[data-info]').forEach((el) => { el.textContent = v[el.dataset.info] || '—'; });
+  });
+
+  // filtro por área: botões fixos no HTML
+  document.querySelectorAll('#filtro-area button').forEach((b) => {
+    b.addEventListener('click', () => dash.setParams({ unidade: b.dataset.area }));
+  });
+  dash.onData(() => {
+    const a = areaAtual();
+    document.querySelectorAll('#filtro-area button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.area === a)));
+  });
+
+  const falha = (el, id) => {
+    const s = dash.data(id).status;
+    el.replaceChildren();
+    el.classList.toggle('dash-skeleton', s === 'loading');
+    if (s === 'error' || s === 'connect') {
+      const d = document.createElement('div');
+      d.className = 'ox-fail';
+      d.textContent = 'Failed to load';
+      el.append(d);
+    }
+    return s !== 'ok';
+  };
+
+  // números do cabeçalho e dos indicadores
+  const linhaKpi = () => {
+    const g = dash.data('kpis');
+    return g.status === 'ok' ? g.data.find((r) => r.unidade === areaAtual()) : null;
+  };
+  const valor = (campo, fmt) => (el) => {
+    const r = linhaKpi();
+    el.classList.toggle('dash-skeleton', dash.data('kpis').status === 'loading');
+    if (!r) { el.textContent = '—'; return; }
+    el.setAttribute('data-where', 'unidade=' + enc(r.unidade));
+    el.textContent = fmt(r[campo]);
+  };
+  dash.draw('t-area', (el) => { const a = areaAtual(); el.textContent = a === TODAS ? 'Na Secretaria de Obras e na NOVACAP, somadas' : a === 'NOVACAP' ? 'Na NOVACAP' : 'Na Secretaria de Obras'; });
+  dash.draw('t-emp', valor('empenhado', brl));
+  dash.draw('t-liq', valor('taxa_liquidacao', pct));
+  dash.draw('t-pag', valor('taxa_pagamento', pct));
+  dash.draw('k-emp', valor('empenhado', brl));
+  dash.draw('k-liq', valor('liquidado', brl));
+  dash.draw('k-pag', valor('pago', brl));
+  dash.draw('k-tx', valor('taxa_liquidacao', pct));
+  dash.draw('k-inv', valor('investimento_liquidado', brl));
+  dash.draw('k-inv-emp', valor('investimento_empenhado', brl));
+  dash.onData(() => { document.querySelectorAll('.ox-sw-liq').forEach((s) => s.style.setProperty('--ox-sw', dash.colors[0])); });
+
+  // utilidades de gráfico
+  const medir = (svg, textos, cls) => {
+    const t = svg.append('text').attr('class', cls).style('font-size', 'var(--cds-font-size-caption)');
+    let m = 0;
+    textos.forEach((s) => { t.text(s); m = Math.max(m, t.node().getComputedTextLength()); });
+    t.remove();
+    return m;
+  };
+  const novaTip = (el) => {
+    const tip = document.createElement('div');
+    tip.className = 'ox-tip';
+    tip.hidden = true;
+    el.append(tip);
+    return (ev, linhas) => {
+      if (!linhas) { tip.hidden = true; return; }
+      tip.replaceChildren(...linhas.map(([k, v], i) => {
+        const d = document.createElement('div');
+        if (i === 0) { d.className = 'ox-tip-k'; d.textContent = k; } else { d.textContent = k + ': ' + v; }
+        return d;
+      }));
+      tip.hidden = false;
+      const box = el.getBoundingClientRect();
+      const x = ev.clientX - box.left, y = ev.clientY - box.top;
+      const w = tip.offsetWidth, h = tip.offsetHeight;
+      tip.style.left = Math.max(0, Math.min(box.width - w, x + 12)) + 'px';
+      tip.style.top = Math.max(0, y - h - 8) + 'px';
+    };
+  };
+  const svgEm = (el, h) => {
+    const w = Math.max(280, el.clientWidth);
+    const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${w} ${h}`).style('display', 'block').style('overflow', 'visible');
+    return { svg, w };
+  };
+  const estiloTexto = (sel) => sel.style('font-size', 'var(--cds-font-size-caption)').style('fill', 'var(--color-fg-muted)').style('font-family', 'var(--font-anthropic-sans)');
+
+  // barras horizontais genéricas (rótulo à esquerda, valor no fim)
+  const barrasH = (el, linhas, { rot, val, cor, fundo, clique, tip }) => {
+    const passo = 28, h = linhas.length * passo + 4;
+    const { svg, w } = svgEm(el, h);
+    const wRot = Math.min(w * 0.42, medir(svg, linhas.map(rot)) + 10);
+    const maxV = d3.max(linhas, (d) => Math.max(val(d), fundo ? fundo(d) : 0)) || 1;
+    const wVal = medir(svg, linhas.map((d) => brl(val(d)))) + 10;
+    const x = d3.scaleLinear([0, maxV], [0, Math.max(40, w - wRot - wVal)]);
+    const mostrar = novaTip(el);
+    const g = svg.selectAll('g.l').data(linhas).join('g').attr('class', 'l').attr('transform', (d, i) => `translate(0,${i * passo})`)
+      .style('cursor', (d) => (clique && clique(d, true)) ? 'pointer' : 'default');
+    estiloTexto(g.append('text').attr('x', wRot - 8).attr('y', passo / 2).attr('dy', '0.35em').attr('text-anchor', 'end').text(rot))
+      .style('fill', 'var(--color-fg)')
+      .each(function () {
+        let t = this.textContent;
+        while (this.getComputedTextLength() > wRot - 10 && t.length > 4) { t = t.slice(0, -2); this.textContent = t + '…'; }
+      });
+    if (fundo) g.append('rect').attr('x', wRot).attr('y', 6).attr('height', passo - 12).attr('rx', 3).attr('width', (d) => x(fundo(d))).style('fill', 'var(--cds-chart-muted)').style('opacity', .45);
+    g.append('rect').attr('x', wRot).attr('y', 6).attr('height', passo - 12).attr('rx', 3).attr('width', (d) => Math.max(1, x(val(d)))).style('fill', cor);
+    estiloTexto(g.append('text').attr('x', (d) => wRot + x(Math.max(val(d), fundo ? fundo(d) : 0)) + 6).attr('y', passo / 2).attr('dy', '0.35em').text((d) => brl(val(d))));
+    g.append('rect').attr('x', 0).attr('width', w).attr('height', passo).style('fill', 'transparent')
+      .on('mousemove', (ev, d) => mostrar(ev, tip(d))).on('mouseleave', (ev) => mostrar(ev, null))
+      .on('click', (ev, d) => { if (clique) clique(d, false); });
+  };
+
+  dash.draw('funil', (el) => {
+    if (falha(el, 'kpis')) return;
+    const r = linhaKpi();
+    if (!r) return;
+    const etapas = [['Empenhado', r.empenhado], ['Liquidado', r.liquidado], ['Pago', r.pago]];
+    barrasH(el, etapas, {
+      rot: (d) => d[0], val: (d) => d[1],
+      cor: (d, i) => dash.colors[0],
+      tip: (d) => [[d[0]], ['Valor', brl(d[1])], ['Do empenhado', pct(d[1] / r.empenhado)]],
+    });
+  });
+
+  dash.draw('mensal', (el) => {
+    if (falha(el, 'mensal')) return;
+    const a = areaAtual();
+    const linhas = dash.data('mensal').data.filter((r) => r.unidade === a).sort((p, q) => d3.ascending(p.mes, q.mes));
+    if (!linhas.length) return;
+    const h = 220;
+    const { svg, w } = svgEm(el, h);
+    const maxV = d3.max(linhas, (d) => Number(d.empenhado));
+    const y = d3.scaleLinear([0, maxV], [h - 24, 8]).nice();
+    const wEixo = medir(svg, y.ticks(4).map((v) => brl(v))) + 8;
+    const x = d3.scaleBand(linhas.map((d) => d.mes), [wEixo, w]).padding(0.25);
+    svg.append('g').selectAll('line').data(y.ticks(4)).join('line')
+      .attr('x1', wEixo).attr('x2', w).attr('y1', y).attr('y2', y).style('stroke', 'var(--cds-chart-grid)');
+    estiloTexto(svg.append('g').selectAll('text').data(y.ticks(4)).join('text')
+      .attr('x', wEixo - 6).attr('y', y).attr('dy', '0.35em').attr('text-anchor', 'end').text((v) => brl(v)));
+    estiloTexto(svg.append('g').selectAll('text').data(linhas).join('text')
+      .attr('x', (d) => x(d.mes) + x.bandwidth() / 2).attr('y', h - 6).attr('text-anchor', 'middle').text((d) => mesLabel(d.mes)));
+    const mostrar = novaTip(el);
+    svg.append('g').selectAll('rect').data(linhas).join('rect')
+      .attr('x', (d) => x(d.mes) + Math.max(0, (x.bandwidth() - 32) / 2)).attr('width', Math.min(32, x.bandwidth()))
+      .attr('y', (d) => y(Number(d.empenhado))).attr('height', (d) => y(0) - y(Number(d.empenhado))).attr('rx', 3)
+      .style('fill', dash.colors[0]).style('opacity', (d) => d.mes === mesParcial() ? 0.45 : 1)
+      .on('mousemove', (ev, d) => mostrar(ev, [[mesLabel(d.mes) + ' ' + d.mes.slice(0, 4) + (d.mes === mesParcial() ? ' (até ' + dataCurta() + ')' : '')], ['Empenhado', brl(d.empenhado)]]))
+      .on('mouseleave', (ev) => mostrar(ev, null));
+  });
+
+  dash.draw('acoes', (el) => {
+    if (falha(el, 'por_acao')) return;
+    const a = areaAtual();
+    const linhas = dash.data('por_acao').data.filter((r) => r.unidade === a)
+      .sort((p, q) => d3.descending(Number(p.empenhado), Number(q.empenhado)));
+    barrasH(el, linhas, {
+      rot: (d) => d.acao.length > 58 ? d.acao.slice(0, 56) + '…' : d.acao,
+      val: (d) => Number(d.liquidado), fundo: (d) => Number(d.empenhado),
+      cor: () => dash.colors[0],
+      tip: (d) => [[d.acao], ['Empenhado', brl(d.empenhado)], ['Liquidado', brl(d.liquidado)], ['Pago', brl(d.pago)], ['Liq. ÷ emp.', pct(Number(d.liquidado) / Number(d.empenhado))]],
+    });
+  });
+
+  dash.draw('grupo', (el) => {
+    if (falha(el, 'por_grupo')) return;
+    const a = areaAtual();
+    const linhas = dash.data('por_grupo').data.filter((r) => r.unidade === a && Number(r.empenhado) > 0)
+      .sort((p, q) => d3.descending(Number(p.empenhado), Number(q.empenhado)));
+    barrasH(el, linhas, {
+      rot: (d) => d.grupo, val: (d) => Number(d.liquidado), fundo: (d) => Number(d.empenhado),
+      cor: () => dash.colors[0],
+      tip: (d) => [[d.grupo], ['Empenhado', brl(d.empenhado)], ['Liquidado', brl(d.liquidado)], ['Pago', brl(d.pago)]],
+    });
+  });
+
+  const corpoTabela = (id, colunas, barra) => (tb) => {
+    tb.replaceChildren();
+    const g = dash.data(id);
+    if (g.status !== 'ok') return;
+    const a = areaAtual();
+    const chave = id === 'programas' ? 'codigo_pt' : 'credor';
+    const linhas = g.data.filter((r) => r.unidade === a);
+    const maxB = d3.max(linhas, (r) => Number(r[barra])) || 1;
+    linhas.forEach((r) => {
+      const tr = document.createElement('tr');
+      tr.dataset.key = enc(r.unidade) + ',' + enc(r[chave]);
+      colunas.forEach(([campo, fmt, cls]) => {
+        const td = document.createElement('td');
+        if (cls) td.className = cls;
+        if (campo === barra) {
+          const s = document.createElement('span');
+          s.className = 'ox-bar';
+          s.style.width = (3 * Number(r[campo]) / maxB) + 'rem';
+          s.style.background = dash.colors[0];
+          td.append(s);
+        }
+        td.append(document.createTextNode(fmt ? fmt(r[campo]) : r[campo]));
+        tr.append(td);
+      });
+      tb.append(tr);
+    });
+  };
+  dash.draw('programas-body', corpoTabela('programas', [['programa_trabalho'], ['codigo_pt', null, 'ox-hide-narrow'], ['empenhado', brl], ['liquidado', brl, 'ox-hide-narrow'], ['taxa_liquidacao', pct]], 'empenhado'));
+  dash.draw('credores-body', corpoTabela('credores', [['credor'], ['empenhado', brl, 'ox-hide-narrow'], ['pago', brl]], 'pago'));
+
+  const named = document.getElementById(location.hash.slice(1));
+  if (named) named.scrollIntoView();
+</script>
+</body>
+</html>
